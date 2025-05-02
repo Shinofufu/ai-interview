@@ -85,7 +85,7 @@
           <div v-if="formData.experience.length > 0" class="parsed-projects">
             <el-divider>
               <el-icon><View /></el-icon>
-              <span style="margin-left: 5px;">AI 解析的项目经历</span>
+              <span style="margin-left: 5px;">AI 解析的项目经历和工作经历</span>
             </el-divider>
             <el-card v-for="(project, index) in formData.experience" :key="index" shadow="never" class="project-card">
               <template #header>
