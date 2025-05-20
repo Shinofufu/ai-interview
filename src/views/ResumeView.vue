@@ -11,13 +11,13 @@
 
           <div class="upload-area">
             <el-upload
-              class="resume-uploader"
-              drag
-              action="#"
-              :auto-upload="false"
-              :on-change="handleFileChange"
-              :show-file-list="false"
-              accept="application/pdf"
+                class="resume-uploader"
+                drag
+                action="#"
+                :auto-upload="false"
+                :on-change="handleFileChange"
+                :show-file-list="false"
+                accept="application/pdf"
             >
               <el-icon class="el-icon--upload"><upload-filled /></el-icon>
               <div class="el-upload__text">
@@ -82,11 +82,14 @@
 
           </el-form>
 
-          <div v-if="formData.experience.length > 0" class="parsed-projects">
-            <el-divider>
-              <el-icon><View /></el-icon>
-              <span style="margin-left: 5px;">AI 解析的项目经历和工作经历</span>
+          <div v-if="formData.experience.length > 0" class="parsed-projects section-block">
+            <el-divider content-position="left">
+              <el-icon><View /></el-icon> <span style="margin-left: 5px;">AI 解析的项目经历和工作经历</span>
             </el-divider>
+
+            <div class="tag-selection-hint">
+              <el-icon style="vertical-align: middle; margin-right: 4px; color: #E6A23C;"><Opportunity /></el-icon> <span>提示：请点击下方各项目中的技术标签，选择您期望在后续面试环节侧重考察的领域。</span>
+            </div>
             <el-card v-for="(project, index) in formData.experience" :key="index" shadow="never" class="project-card">
               <template #header>
                 <div class="card-header">
@@ -94,7 +97,20 @@
                   <span class="date-range">{{ project.dateRange }}</span>
                 </div>
               </template>
-              <p style="white-space: pre-wrap;">{{ project.description }}</p>
+              <div v-if="project.tags && project.tags.length > 0" class="project-tags">
+                <el-tag
+                    v-for="tag in project.tags"
+                    :key="tag"
+                    :type="isTagSelected(tag) ? 'primary' : 'info'"
+                    :effect="isTagSelected(tag) ? 'dark' : 'light'"
+                    size="default"
+                    class="project-tag-item"
+                    @click="toggleProjectTagSelection(tag)"
+                    style="cursor: pointer; user-select: none;"
+                >
+                  {{ tag }}
+                </el-tag>
+              </div>
             </el-card>
           </div>
         </div>
@@ -113,7 +129,7 @@ import { ref, reactive } from 'vue'
 import { useStore } from 'vuex'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElLoading } from 'element-plus'
-import { Document, UploadFilled } from '@element-plus/icons-vue'
+import { Document, UploadFilled,View,Opportunity } from '@element-plus/icons-vue'
 import AppSidebar from '../components/AppSidebar.vue'
 import ProgressBar from '../components/ProgressBar.vue'
 import axios from 'axios'; // 导入 axios
@@ -127,7 +143,9 @@ export default {
     AppSidebar,
     ProgressBar,
     Document,
-    UploadFilled
+    UploadFilled,
+    View,
+    Opportunity
   },
   setup() {
     const store = useStore()
@@ -136,6 +154,7 @@ export default {
     const parsing = ref(false)
     const uploadedFile = ref(null) // 存储 File 对象
     const aiAnalyzing = ref(false) // AI 分析按钮的加载状态
+    const selectedProjectTags = ref([]);
     // 修改 formData 结构，experience 用于存储 AI 返回的项目列表
     const formData = reactive({
       name: '',
@@ -158,10 +177,25 @@ export default {
       formData.phone = '';
       formData.education = '';
       formData.experience = []; // 重置为数组
+      selectedProjectTags.value = [];
       if (resumeForm.value) {
         resumeForm.value.clearValidate();
       }
     }
+    const isTagSelected = (tag) => {
+      return selectedProjectTags.value.includes(tag);
+    };
+    // 【新增】切换标签选中状态的函数
+    const toggleProjectTagSelection = (tag) => {
+      const index = selectedProjectTags.value.indexOf(tag);
+      if (index > -1) {
+        selectedProjectTags.value.splice(index, 1); // 如果已选中，则移除
+      } else {
+        selectedProjectTags.value.push(tag); // 如果未选中，则添加
+      }
+      console.log('当前选中的标签:', selectedProjectTags.value);
+    };
+
 
 
     // 处理文件上传
@@ -177,7 +211,7 @@ export default {
       ElMessage.success(`已选择文件: ${uploadedFile.value.name}`);
       return false
     }
-    
+
     // 移除上传的文件
     const removeFile = () => {
       uploadedFile.value = null
@@ -272,10 +306,13 @@ export default {
         ElMessage.warning('请先选择一个PDF简历文件');
         return;
       }
+
+
       if (aiAnalyzing.value) return; // 防止重复点击
 
       aiAnalyzing.value = true;
       parsing.value = false;
+      selectedProjectTags.value = []; // <--- 【修改】AI分析前清空已选标签
       const loadingInstance = ElLoading.service({ text: '上传文件并请求 AI 分析...', background: 'rgba(0, 0, 0, 0.7)' });
 
       const apiFormData = new FormData();
@@ -296,7 +333,7 @@ export default {
         formData.phone = backendData.phone || '';
         formData.education = backendData.educationSummary || ''; // 使用 AI 的教育摘要
         formData.experience = backendData.projects || []; // 填充项目经历数组
-
+        store.commit('setAnalyzedResumeData', backendData);
         ElMessage.success('云端 AI 分析完成！');
 
       } catch (error) {
@@ -322,25 +359,66 @@ export default {
 
 
     // 提交简历 (现在 experience 是项目数组)
-    const submitResume = () => {
-      resumeForm.value.validate(valid => {
+    const submitResume = async () => {
+      resumeForm.value.validate(async valid => {
         if (valid) {
-          const finalFormData = {
-            name: formData.name,
-            email: formData.email,
-            phone: formData.phone,
-            education: formData.education,
-            experience: formData.experience, // 提交项目数组
+          const finalPayload = {
+            resumeInfo: { // 对应后端的 resumeInfo 字段
+              name: formData.name,
+              email: formData.email,
+              phone: formData.phone,
+              educationSummary: formData.education, // 确保字段名与 ResumeInfo 一致
+              projects: formData.experience.map(exp => ({ // 确保字段名与 ResumeInfo.ProjectExperience 一致
+                projectName: exp.projectName,
+                dateRange: exp.dateRange,
+                description: exp.description || '',
+                tags: exp.tags || []
+              }))
+            },
+            selectedInterviewTags: selectedProjectTags.value
           };
-          console.log('提交的简历数据:', finalFormData);
-          // 确保 Vuex store action 'submitResume' 能处理 experience 是数组的情况
-          store.dispatch('submitResume', finalFormData)
-          router.push('/interview')
+          console.log('准备提交给后端 /api/interview/setup 的数据:', finalPayload);
+          const payloadForVuex = {
+            userInfo: { // 从 finalPayload.resumeInfo 中提取用户信息
+              name: finalPayload.resumeInfo.name,
+              email: finalPayload.resumeInfo.email,
+              phone: finalPayload.resumeInfo.phone,
+              education: finalPayload.resumeInfo.educationSummary, // 与Vuex state中字段名(education)对应
+              experience: finalPayload.resumeInfo.projects // 与Vuex state中字段名(experience)对应 (注意：结构可能仍需匹配)
+            },
+            initialDurationMinutes: 15
+          };
+          await store.dispatch('initializeAndStartInterview', payloadForVuex);
+          await router.push('/interview');
+          const loadingInstance = ElLoading.service({text: '正在初始化面试环境...', background: 'rgba(0, 0, 0, 0.7)'});
+          try {
+            // 【新增】调用后端 /api/interview/setup 接口
+            const response = await axios.post('http://localhost:8123/api/interview/setup-current', finalPayload);
+
+              console.log(response);
+              ElMessage.success('面试环境已准备就绪！');
+              router.push('/interview'); // 跳转到面试聊天页面
+
+          } catch (error) {
+            console.error('调用 /api/interview/setup 失败:', error);
+            let errorMessage = '面试初始化请求失败';
+            if (error.response) {
+              const errorData = error.response.data;
+              errorMessage += `: ${error.response.status} - ${typeof errorData === 'string' ? errorData : (errorData?.error?.message || errorData?.message || error.message)}`;
+            } else if (error.request) {
+              errorMessage += ': 无法连接到服务器';
+            } else {
+              errorMessage += `: ${error.message}`;
+            }
+            ElMessage.error(errorMessage);
+          } finally {
+            loadingInstance.close();
+          }
         } else {
           ElMessage.error('请检查表单，确保姓名、邮箱、电话已正确填写');
           return false;
         }
-      })
+      });
     }
 
 // 返回给模板
@@ -355,7 +433,10 @@ export default {
       removeFile,
       parseResume,         // 本地解析方法
       analyzeResumeWithAI, // 云端 AI 解析方法
-      submitResume
+      submitResume,
+      selectedProjectTags,      // <--- 【新增】
+      isTagSelected,          // <--- 【新增】
+      toggleProjectTagSelection // <--- 【新增】
     }
   }
 }
@@ -405,5 +486,31 @@ export default {
 
 .el-divider {
   margin: 30px 0;
+}
+.project-tags {
+  margin-bottom: 10px;
+  padding-bottom: 10px;
+  /* border-bottom: 1px dashed #ebeef5; */ /* 这条分隔线可以保留或去掉 */
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px; /* 标签之间的水平和垂直间距 */
+}
+
+.project-tag-item {
+  /* 你可以根据需要添加更多样式 */
+  transition: all 0.2s ease-in-out; /* 平滑过渡效果 */
+}
+/* 在 <style scoped> 中 */
+.tag-selection-hint {
+  margin-bottom: 15px; /* 提示文字与下方第一个项目卡片的间距 */
+  padding: 8px 12px;   /* 内边距 */
+  background-color: #fdf6ec; /* 淡黄色背景，可选 */
+  border: 1px solid #f3d19e; /* 淡黄色边框，可选 */
+  border-radius: 4px;     /* 圆角 */
+  color: #E6A23C;         /* 文字颜色，与图标颜色匹配 */
+  font-size: 0.9em;       /* 稍小一点的字体 */
+  text-align: left;       /* 文字左对齐，如果需要居中可以改为 center */
+  display: flex;          /* 使用 flex 让图标和文字垂直居中 */
+  align-items: center;    /* 垂直居中 */
 }
 </style> 

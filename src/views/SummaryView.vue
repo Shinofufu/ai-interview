@@ -26,17 +26,6 @@
                 class="summary-progress"
               ></el-progress>
             </div>
-            
-            <div class="summary-item">
-              <span class="item-label">代码能力：</span>
-              <el-progress
-                :percentage="results.codingAbility"
-                :color="getColorForScore(results.codingAbility)"
-                :format="format"
-                class="summary-progress"
-              ></el-progress>
-            </div>
-            
             <div class="summary-item">
               <span class="item-label">沟通表达：</span>
               <el-progress
@@ -73,12 +62,13 @@
 </template>
 
 <script>
-import { computed } from 'vue'
+import {computed, onMounted, ref} from 'vue'
 import { useStore } from 'vuex'
 import { useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import {ElLoading, ElMessage} from 'element-plus'
 import AppSidebar from '../components/AppSidebar.vue'
 import ProgressBar from '../components/ProgressBar.vue'
+import axios from "axios";
 
 export default {
   name: 'SummaryView',
@@ -89,9 +79,71 @@ export default {
   setup() {
     const store = useStore()
     const router = useRouter()
-    
-    const results = computed(() => store.state.interviewResults)
-    
+
+    const results = computed(() => store.state.interviewResults || {
+      // 提供一些默认值，防止模板在数据加载前报错
+      totalTime: 0,
+      completionRate: 0,
+      communicationSkill: 0,
+      overallScore: 0,
+      suggestion: '正在生成总结...'
+    });
+
+    const isLoadingSummary = ref(true); // 控制加载状态
+    onMounted(async () => {
+      isLoadingSummary.value = true;
+      const loadingInstance = ElLoading.service({
+        text: '正在获取面试评估结果...',
+        background: 'rgba(0, 0, 0, 0.8)'
+      });
+
+      try {
+
+
+        const response = await axios.post('http://localhost:8123/api/ai/generate-evaluation');
+
+        // 后端返回 InterviewEvaluationResult DTO
+        const evaluationData = response.data;
+
+        // 更新 Vuex store 中的 interviewResults
+        // 你需要一个 mutation (例如 'setInterviewResults') 来处理这个
+        // 确保 evaluationData 的字段名与 store.state.interviewResults 中的 key 匹配
+        // 或者在这里进行映射
+        const newResults = {
+          ...store.state.interviewResults, // 保留可能已有的字段，比如 totalTime
+          completionRate: evaluationData.completionRate || 0,         // 现在直接从后端获取
+          communicationSkill: evaluationData.communicationSkill || 0, // 现在直接从后端获取
+          codingAbility: evaluationData.codingAbility || 0,           // 后端JSON键是 "codingAbility"
+          overallScore: evaluationData.overallScore || 0,           // 后端JSON键是 "overallScore"
+          suggestion: evaluationData.suggestion || '暂无建议。'      // 后端JSON键是 "suggestion"
+        };
+        store.commit('setInterviewResults', newResults); // 或者 dispatch 一个 action
+
+        console.log('面试评估结果已更新到 Vuex store:', newResults);
+        ElMessage.success('面试评估已加载！');
+
+      } catch (error) {
+        console.error('获取面试评估失败:', error);
+        let errorMessage = '获取面试评估失败';
+        if (error.response && error.response.data) {
+          const errorData = error.response.data;
+          errorMessage += `: ${error.response.status} - ${typeof errorData === 'string' ? errorData : (errorData?.message || error.message)}`;
+        } else if (error.request) {
+          errorMessage += ': 无法连接到服务器';
+        } else {
+          errorMessage += `: ${error.message}`;
+        }
+        ElMessage.error(errorMessage);
+        // 设置一个错误提示到 suggestion
+        store.commit('setInterviewResults', {
+          ...results.value,
+          suggestion: '获取评估结果失败，请稍后重试。'
+        });
+      } finally {
+        loadingInstance.close();
+        isLoadingSummary.value = false;
+      }
+    });
     const getColorForScore = (score) => {
       if (score >= 90) return '#67C23A'
       if (score >= 75) return '#409EFF'
