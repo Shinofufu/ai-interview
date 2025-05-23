@@ -1,3 +1,4 @@
+// src/components/AppSidebar.vue
 <template>
   <div class="sidebar" :class="{ 'sidebar-left': position === 'left', 'sidebar-right': position === 'right' }">
     <template v-if="position === 'left'">
@@ -5,100 +6,117 @@
         <h3>面试流程</h3>
       </div>
       <div class="sidebar-content">
-        <el-steps direction="vertical" :active="activeStep">
-          <el-step title="提交简历" />
-          <el-step title="自我介绍" />
-          <el-step title="专业问题" />
-          <el-step title="情景模拟" />
-          <el-step v-if="$route.path === '/summary'" title="面试总结" />
+        <el-steps direction="vertical" :active="activeStepIndex" finish-status="success" class="interview-steps">
+          <el-step title="简历准备" description="上传并确认简历信息" :icon="DocumentCopy" />
+          <el-step title="视频面试" description="与AI面试官互动问答" :icon="VideoCamera" />
+          <el-step title="能力评估" description="AI分析您的面试表现" :icon="Opportunity" />
+          <el-step title="获取总结" description="查看详细的面试报告" :icon="Memo" />
         </el-steps>
       </div>
     </template>
 
-    <template v-else>
+    <template v-else-if="position === 'right'">
       <div class="sidebar-header">
         <h3>面试信息</h3>
       </div>
-      <div class="sidebar-content">
-        <p><strong>姓名：</strong>{{ userName }}</p>
-        <template v-if="$route.path !== '/summary'">
-          <p><strong>剩余时间：</strong>{{ timeRemainingFormattedString }}</p>
-        </template>
-        <template v-else>
-          <p><strong>总时长：</strong>{{ formatTime(totalTime) }}</p>
-        </template>
+      <div class="sidebar-content right-sidebar-content">
+        <div class="info-item">
+          <el-icon><UserIcon /></el-icon>
+          <span><strong>候选人：</strong>{{ displayedUserName }}</span>
+        </div>
+        <div class="info-item" v-if="currentInterviewStage !== 'summary' && isInterviewActive">
+          <el-icon><AlarmClock /></el-icon>
+          <span><strong>剩余时间：</strong>{{ timeRemainingFormattedString }}</span>
+        </div>
+        <div class="info-item" v-if="currentInterviewStage === 'summary'">
+          <el-icon><Finished /></el-icon>
+          <span><strong>面试已完成</strong></span>
+        </div>
+        <div class="info-item" v-if="currentInterviewStage === 'summary' && resultsForSidebar.totalTime > 0">
+          <el-icon><TimerIcon /></el-icon>
+          <span><strong>总用时：</strong>{{ resultsForSidebar.totalTime }} 分钟</span>
+        </div>
+
+        <el-divider v-if="progressBarVisibleInRightSidebar" style="margin: 15px 0;" />
+        <ProgressBar v-if="progressBarVisibleInRightSidebar" class="sidebar-progress-bar"/>
       </div>
     </template>
   </div>
 </template>
 
-<script>
-import { computed } from 'vue'
-import { useStore } from 'vuex'
-import { useRoute } from 'vue-router'
+<script setup>
+import { computed, defineProps } from 'vue'; // 确保 defineProps 导入
+import { useStore } from 'vuex';
+import { useRoute } from 'vue-router';
+import ProgressBar from './ProgressBar.vue';
+import { DocumentCopy, VideoCamera, Opportunity, Memo, User as UserIcon, AlarmClock, Finished, Timer as TimerIcon } from '@element-plus/icons-vue';
 
-export default {
-  name: 'AppSidebar',
-  props: {
-    position: {
-      type: String,
-      required: true,
-      validator: (value) => ['left', 'right'].includes(value)
-    }
-  },
-  setup() {
-    const store = useStore()
-    const route = useRoute()
-    
-    const activeStep = computed(() => {
-      switch (route.path) {
-        case '/': return 0; // 提交简历页
-        case '/interview': return 1; // 面试中（自我介绍、专业问题、情景模拟可能都在这个页面）
-                                     // 您可能需要更细致的步骤划分，例如通过面试内部状态
-          // case '/coding': return 2; // 如果有单独的编码题页面
-        case '/summary': return 4; // 面试总结页 (假设跳过了2,3步，或者它们是/interview的一部分)
-        default:
-          // 如果在面试页，但不是特定子路由，可以根据progress来判断
-          if (route.path.startsWith('/interview')) { // 更通用地判断是否在面试中
-            // 这里可以根据更详细的面试阶段状态来设置activeStep，
-            // 例如，如果面试分为自我介绍(1)、专业提问(2)、情景模拟(3)等阶段
-            // 当前简单处理为只要在/interview就是第1步之后（或特定值）
-            if (store.state.progress >= 66) return 3; // 情景模拟阶段
-            if (store.state.progress >= 33) return 2; // 专业问题阶段 (假设33代表自我介绍完成)
-            return 1; // 自我介绍阶段
-          }
-          return 0; // 其他未知路径或初始状态
-      }
-    })
-    
-    const userName = computed(() => store.getters.userName)
-    const timeRemainingFormattedString = computed(() => store.getters.timeRemainingFormatted); // 使用新的getter
-
-    const totalTimeInMinutes = computed(() => {
-      // 确保 interviewResults 和 totalTime 存在且是数字
-      return (store.state.interviewResults && typeof store.state.interviewResults.totalTime === 'number')
-          ? store.state.interviewResults.totalTime
-          : 0; // 提供默认值
-    });
-    const formatTotalTime = (minutes) => {
-      if (typeof minutes !== 'number' || isNaN(minutes)) { // 增加校验
-        return '00:00'; // 或其他默认显示
-      }
-      const mins = Math.floor(minutes);
-      const secsPart = Math.round((minutes - mins) * 60); // 注意：如果totalTime已经是整数分钟，这里secsPart会是0
-      // 如果 totalTime 就是整数分钟，可以直接显示，或者也格式化为 mm:00
-      return `${String(mins).padStart(2, '0')}:${String(secsPart).padStart(2, '0')}`;
-    };
-    
-    return {
-      activeStep,
-      userName,
-      timeRemainingFormattedString, // <--- 暴露格式化好的剩余时间
-      totalTime: totalTimeInMinutes, // <--- 暴露处理过的总时长（分钟）
-      formatTime: formatTotalTime   // <--- 暴露处理过的 totalTime 格式化函数
-    }
+// eslint-disable-next-line no-unused-vars
+const props = defineProps({
+  position: {
+    type: String,
+    required: true,
+    validator: (value) => ['left', 'right'].includes(value)
   }
-}
+});
+
+const store = useStore();
+const route = useRoute();
+
+const interviewStageMap = {
+  '/': { name: 'resume', stepIndex: 0 },
+  '/interview': { name: 'interview', stepIndex: 1 },
+  '/summary': { name: 'summary', stepIndex: 3 }
+  // 如果有 /coding 页面，也应加入
+  // '/coding': { name: 'coding', stepIndex: 2 },
+};
+console.log('[AppSidebar] Current route.path:', route.path);
+
+const currentInterviewStage = computed(() => {
+  const stage = interviewStageMap[route.path]?.name || 'unknown';
+  console.log('[AppSidebar] currentInterviewStage:', stage, '(based on path:', route.path, ')');
+  return stage;
+});
+
+const activeStepIndex = computed(() => {
+  const index = interviewStageMap[route.path]?.stepIndex ?? 0; // 默认0
+  console.log('[AppSidebar] activeStepIndex:', index, '(based on path:', route.path, ')');
+  return index;
+});
+
+const displayedUserName = computed(() => {
+  const user = store.getters.getCurrentUser;
+  const name = user ? user.username : (store.state.userName || '访客');
+  console.log('[AppSidebar] displayedUserName:', name);
+  return name;
+});
+
+const timeRemainingFormattedString = computed(() => {
+  const formattedTime = store.getters.timeRemainingFormatted;
+  // console.log('[AppSidebar] timeRemainingFormattedString:', formattedTime); // 这个会频繁打印，暂时注释
+  return formattedTime;
+});
+
+const isInterviewActive = computed(() => {
+  const active = store.getters.isInterviewActive;
+  console.log('[AppSidebar] isInterviewActive (from Vuex):', active);
+  return active;
+});
+
+// 右侧边栏进度条的可见性逻辑调整
+const progressBarVisibleInRightSidebar = computed(() => {
+  // 进度条只在简历准备阶段和视频面试阶段，且面试激活时显示
+  const visible = (currentInterviewStage.value === 'resume' || currentInterviewStage.value === 'interview') && isInterviewActive.value;
+  console.log('[AppSidebar] progressBarVisibleInRightSidebar:', visible);
+  return visible;
+});
+
+const resultsForSidebar = computed(() => {
+  const results = store.state.interviewResults;
+  // console.log('[AppSidebar] resultsForSidebar (from Vuex):', results); // 可能包含很多信息，暂时注释
+  return results;
+});
+
 </script>
 
 <style scoped>
@@ -106,31 +124,67 @@ export default {
   height: 100%;
   display: flex;
   flex-direction: column;
+  padding: 20px;
+  background-color: #fff;
+  border-radius: 8px;
+  box-shadow: 0 2px 12px 0 rgba(0,0,0,0.06);
+  box-sizing: border-box;
+  /* 确保 sidebar 本身可见 */
+  border: 1px dashed #ccc; /* 临时边框用于调试可见性 */
+  min-width: 150px; /* 确保有个最小宽度 */
 }
 
 .sidebar-header {
-  margin-bottom: 20px;
-  padding-bottom: 10px;
-  border-bottom: 1px solid #eee;
+  margin-bottom: 25px;
+  padding-bottom: 15px;
+  border-bottom: 1px solid var(--el-border-color-lighter);
 }
 
 .sidebar-header h3 {
-  font-size: 18px;
-  color: var(--text-color);
+  font-size: 1.1rem;
+  color: var(--el-text-color-primary);
   margin: 0;
+  font-weight: 600;
 }
 
 .sidebar-content {
   flex: 1;
+  overflow-y: auto;
 }
 
-.sidebar-content p {
-  margin-bottom: 15px;
-  font-size: 14px;
-  color: var(--light-text);
+.interview-steps :deep(.el-step__icon) {
+  background-color: var(--el-bg-color-page);
+}
+.interview-steps :deep(.el-step__title) {
+  font-size: 0.95rem;
+  font-weight: 500;
+}
+.interview-steps :deep(.el-step.is-vertical .el-step__line) {
+  left: 11px;
+}
+.interview-steps :deep(.el-step__description) {
+  font-size: 0.8rem;
+  color: var(--el-text-color-secondary);
 }
 
-.sidebar-content strong {
-  color: var(--text-color);
+.right-sidebar-content .info-item {
+  display: flex;
+  align-items: center;
+  margin-bottom: 18px;
+  font-size: 0.9rem;
+  color: var(--el-text-color-regular);
 }
-</style> 
+.right-sidebar-content .info-item .el-icon {
+  margin-right: 10px;
+  font-size: 1.1em;
+  color: var(--el-color-primary);
+}
+.right-sidebar-content .info-item strong {
+  color: var(--el-text-color-primary);
+  font-weight: 500;
+}
+
+.sidebar-progress-bar {
+  margin-top: 5px;
+}
+</style>

@@ -1,107 +1,229 @@
-// store/index.js
-import { createStore } from 'vuex'
+// src/store/index.js
+import { createStore } from 'vuex';
+import { ElMessage } from 'element-plus'; // 引入 ElMessage，如果 action 中需要
+// import router from '../router'; // 避免在 store 中直接导入 router
 
 export default createStore({
   state: {
-    userInfo: {
-      name: '',
-      email: '',
-      phone: '',
-      experience: '', // 建议与后端 InterviewSetupRequest 的 experience 结构对齐
-      education: ''   // 建议与后端 InterviewSetupRequest 的 educationSummary 对齐
-    },
+    // --- 您已有的 state ---
     progress: 0,
-    // --- 时间相关状态修改 ---
-    interviewTotalDurationSeconds: 15 * 60, // 默认15分钟，以秒为单位
-    timeRemainingSeconds: 15 * 60,        // 剩余时间，以秒为单位
-    isInterviewActive: false,            // 面试是否正在进行
-    // --- 时间相关状态修改结束 ---
+    timeRemaining: 15,
+    timeRemainingSeconds: 15 * 60,
+    isInterviewActive: false,
+    userName: '', // 考虑从 currentUser 获取
+    userEmail: '', // 考虑从 currentUser 获取
+    resumeData: null,
     interviewResults: {
-      totalTime: 0, // 这个可以考虑在面试结束时根据 interviewTotalDurationSeconds - timeRemainingSeconds 计算
+      totalTime: 0,
       completionRate: 0,
-      codingAbility: 0,
       communicationSkill: 0,
       overallScore: 0,
-      suggestion: '',
-    }
+      suggestion: '正在生成总结...',
+      codingAbility:0,
+      expectedPosition: '', // 新增，用于显示在总结页和保存到历史
+      selectedInterviewTags: [], // 新增，用于显示在总结页和保存到历史
+    },
+    analyzedResumeData: null,
+    isAuthenticated: localStorage.getItem('isAuthenticated') === 'true' || false,
+    currentUser: JSON.parse(localStorage.getItem('currentUser')) || null,
+
+    // --- 新增：面试历史记录 state ---
+    interviewHistory: JSON.parse(localStorage.getItem('interviewHistory')) || [],
   },
   getters: {
-    userName(state) {
-      return state.userInfo.name || '未填写';
-    },
-    // --- 新增或修改的时间相关 Getters ---
-    timeRemainingFormatted(state) { // 用于显示 xx:xx 格式
+    // --- 您已有的 getters ---
+    timeRemainingFormatted(state) {
       const minutes = Math.floor(state.timeRemainingSeconds / 60);
       const seconds = state.timeRemainingSeconds % 60;
       return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
     },
     isInterviewActive: state => state.isInterviewActive,
-    interviewProgressPercentage: state => { // 用于进度条
-      if (state.interviewTotalDurationSeconds === 0) return 0;
-      const elapsedSeconds = state.interviewTotalDurationSeconds - state.timeRemainingSeconds;
-      return Math.max(0, Math.min(100, (elapsedSeconds / state.interviewTotalDurationSeconds) * 100));
-    },
-    // --- Getters结束 ---
+    userName: state => state.currentUser ? state.currentUser.username : (state.userName || '用户'), //优先从currentUser获取
+    isUserAuthenticated: state => state.isAuthenticated,
+    getCurrentUser: state => state.currentUser,
+
+    // --- 新增：获取历史记录的 getter ---
+    getInterviewHistory: state => state.interviewHistory,
+    // 获取单条历史记录详情 (如果需要)
+    getInterviewHistoryById: (state) => (id) => {
+      return state.interviewHistory.find(record => record.id === id);
+    }
   },
   mutations: {
-    setUserInfo(state, userInfo) {
-      state.userInfo = { ...state.userInfo, ...userInfo };
+    // --- 您已有的 mutations ---
+    setProgress(state, value) {
+      state.progress = value;
     },
-    setProgress(state, progress) {
-      state.progress = progress;
-    },
-    // --- 时间相关 Mutations ---
-    SET_INTERVIEW_TOTAL_DURATION(state, seconds) {
-      state.interviewTotalDurationSeconds = seconds;
-    },
-    SET_TIME_REMAINING_SECONDS(state, seconds) {
-      state.timeRemainingSeconds = seconds;
+    setTimeRemaining(state, minutes) {
+      state.timeRemaining = minutes;
+      state.timeRemainingSeconds = minutes * 60;
     },
     DECREMENT_TIME_REMAINING_SECONDS(state) {
       if (state.timeRemainingSeconds > 0) {
         state.timeRemainingSeconds--;
+        state.timeRemaining = Math.ceil(state.timeRemainingSeconds / 60);
       }
     },
-    SET_INTERVIEW_ACTIVE(state, isActive) {
+    SET_IS_INTERVIEW_ACTIVE(state, isActive) {
       state.isInterviewActive = isActive;
     },
-    // --- 时间相关 Mutations 结束 ---
+    setUserName(state, name) { // 此 mutation 可能可以被 setUserInfo 替代或整合
+      state.userName = name;
+    },
+    setUserEmail(state, email) {
+      state.userEmail = email;
+    },
+    setResumeData(state, data) {
+      state.resumeData = data;
+    },
     setInterviewResults(state, results) {
-      // 计算实际面试用时并存入
-      const actualTimeTakenSeconds = state.interviewTotalDurationSeconds - state.timeRemainingSeconds;
-      state.interviewResults = {
-        ...state.interviewResults,
-        ...results,
-        totalTime: Math.round(actualTimeTakenSeconds / 60) // 存为分钟
+      state.interviewResults = { ...state.interviewResults, ...results };
+    },
+    resetInterviewState(state) {
+      state.progress = 0;
+      state.timeRemaining = 15;
+      state.timeRemainingSeconds = 15 * 60;
+      state.isInterviewActive = false;
+      // 用户名和邮箱通常在登录后不应被轻易重置，除非是登出操作
+      // state.userName = '';
+      // state.userEmail = '';
+      state.resumeData = null;
+      state.interviewResults = { // 重置为包含所有字段的初始值
+        totalTime: 0,
+        completionRate: 0,
+        communicationSkill: 0,
+        overallScore: 0,
+        suggestion: '正在生成总结...',
+        codingAbility:0,
+        expectedPosition: '',
+        selectedInterviewTags: [],
       };
+      state.analyzedResumeData = null;
+    },
+    setAnalyzedResumeData(state, data) {
+      state.analyzedResumeData = data;
+      if (data && data.name) state.userName = data.name; // 仍然可以用于简历提交时的临时显示
+      if (data && data.email) state.userEmail = data.email;
+      if (data && data.expectedPosition) state.interviewResults.expectedPosition = data.expectedPosition; // 从简历分析中获取期望岗位
+    },
+    setLoginStatus(state, isAuthenticated) {
+      state.isAuthenticated = isAuthenticated;
+      if (isAuthenticated) {
+        localStorage.setItem('isAuthenticated', 'true');
+      } else {
+        localStorage.removeItem('isAuthenticated');
+        // state.currentUser = null; // 在 clearAuthData 中处理
+      }
+    },
+    setUserInfo(state, userInfo) {
+      state.currentUser = userInfo;
+      if (userInfo) {
+        localStorage.setItem('currentUser', JSON.stringify(userInfo));
+        if (userInfo.username) {
+          state.userName = userInfo.username; // 确保 userName 也被更新
+        }
+      } else { // 如果 userInfo 为 null (例如登出时)
+        localStorage.removeItem('currentUser');
+      }
+    },
+    clearAuthData(state) {
+      state.isAuthenticated = false;
+      state.currentUser = null;
+      localStorage.removeItem('isAuthenticated');
+      localStorage.removeItem('currentUser');
+      state.userName = '';
+      state.userEmail = '';
+      // 清理可能与用户相关的面试状态，但历史记录保留
+      state.progress = 0;
+      state.timeRemaining = 15;
+      state.timeRemainingSeconds = 15 * 60;
+      state.isInterviewActive = false;
+      state.resumeData = null;
+      state.interviewResults = { /* 重置 interviewResults */
+        totalTime: 0, completionRate: 0, communicationSkill: 0, overallScore: 0,
+        suggestion: '', codingAbility:0, expectedPosition: '', selectedInterviewTags: []
+      };
+      state.analyzedResumeData = null;
+    },
+
+    // --- 新增：历史记录相关的 mutations ---
+    ADD_INTERVIEW_TO_HISTORY(state, interviewRecord) {
+      state.interviewHistory.unshift(interviewRecord); // 添加到数组开头，最新的在最前面
+      localStorage.setItem('interviewHistory', JSON.stringify(state.interviewHistory));
+    },
+    DELETE_INTERVIEW_HISTORY_ITEM(state, recordId) {
+      state.interviewHistory = state.interviewHistory.filter(record => record.id !== recordId);
+      localStorage.setItem('interviewHistory', JSON.stringify(state.interviewHistory));
+    },
+    CLEAR_ALL_INTERVIEW_HISTORY(state) {
+      state.interviewHistory = [];
+      localStorage.removeItem('interviewHistory');
     }
   },
   actions: {
-    // 这个 action 在 ResumeView.vue 提交简历并准备开始面试时调用
-    initializeAndStartInterview({ commit }, payload) {
-      commit('setUserInfo', payload.userInfo); // <--- 确保这里的 payload.userInfo 包含 name
-      commit('setProgress', 33);
-
-      const durationSeconds = (payload.initialDurationMinutes || 15) * 60;
-      commit('SET_INTERVIEW_TOTAL_DURATION', durationSeconds);
-      commit('SET_TIME_REMAINING_SECONDS', durationSeconds);
-      commit('SET_INTERVIEW_ACTIVE', true);
-
-      commit('setInterviewResults', { /* ... 重置旧结果 ... */ });
-      console.log("Vuex: 面试初始化完成, 用户信息已设置, 计时器已激活。", payload.userInfo);
+    // --- 您已有的 actions ---
+    initializeAndStartInterview({ commit, state }, payload) {
+      if (payload.userInfo) {
+        commit('setUserName', payload.userInfo.name);
+        commit('setUserEmail', payload.userInfo.email);
+        // 将期望岗位和选择的标签也存入当前的 interviewResults，以便后续保存到历史
+        let currentResults = { ...state.interviewResults };
+        if(payload.userInfo.expectedPosition) {
+          currentResults.expectedPosition = payload.userInfo.expectedPosition;
+        }
+        if(payload.selectedInterviewTags) { // 假设 payload 中传递了选中的标签
+          currentResults.selectedInterviewTags = payload.selectedInterviewTags;
+        }
+        commit('setInterviewResults', currentResults);
+      }
+      const duration = payload.initialDurationMinutes || 15;
+      commit('setTimeRemaining', duration);
+      commit('setProgress', 5);
+      commit('SET_IS_INTERVIEW_ACTIVE', true);
     },
-    // 当面试实际结束时（例如时间到，或用户主动结束）
-    finalizeInterview({ commit}) {
-      commit('SET_INTERVIEW_ACTIVE', false); // 停止计时器
-      // 可以在这里触发获取AI总结的API调用，然后用结果commit('setInterviewResults', evaluationData)
-      // 例如:
-      // const evaluationData = await yourApiService.getEvaluation(state.interviewTranscript, state.userInfo);
-      // commit('setInterviewResults', evaluationData);
-      // 注意：totalTime 应该在 setInterviewResults 中根据剩余时间计算
-      console.log("Vuex: 面试已结束。");
+    completeVideoInterview({ commit }) {
+      commit('setProgress', 60);
+    },
+    finalizeInterview({ commit, state }) { // 修改这里以保存历史记录
+      commit('setProgress', 100);
+      commit('SET_IS_INTERVIEW_ACTIVE', false);
+
+      // 准备要保存到历史的记录
+      const now = new Date();
+      const recordToSave = {
+        id: `interview_${now.getTime()}_${Math.random().toString(36).substr(2, 5)}`, // 生成唯一ID
+        interviewDate: now.toISOString(),
+        userName: state.currentUser ? state.currentUser.username : state.userName, // 优先使用登录用户名
+        // 从 state.interviewResults 中获取总结数据
+        expectedPosition: state.interviewResults.expectedPosition || '未指定',
+        overallScore: state.interviewResults.overallScore || 0,
+        totalTime: state.interviewResults.totalTime || 0,
+        completionRate: state.interviewResults.completionRate || 0,
+        communicationSkill: state.interviewResults.communicationSkill || 0,
+        codingAbility: state.interviewResults.codingAbility || 0,
+        suggestion: state.interviewResults.suggestion || '无',
+        selectedInterviewTags: state.interviewResults.selectedInterviewTags || [],
+      };
+      commit('ADD_INTERVIEW_TO_HISTORY', recordToSave);
+      ElMessage.success('本次面试总结已保存到历史记录！');
+    },
+    logout({ commit }) {
+      commit('clearAuthData');
+      // 路由跳转由组件处理
+      console.log('User logged out from Vuex action');
     },
 
+    // --- 新增：历史记录相关的 actions (如果需要异步操作) ---
+    deleteHistoryItem({ commit }, recordId) {
+      // 这里可以添加与后端同步删除的逻辑（如果历史记录也存后端的话）
+      commit('DELETE_INTERVIEW_HISTORY_ITEM', recordId);
+      ElMessage.success('历史记录已删除。');
+    },
+    clearAllHistory({ commit }) {
+      // 这里可以添加与后端同步删除的逻辑
+      commit('CLEAR_ALL_INTERVIEW_HISTORY');
+      ElMessage.success('所有历史记录已清空。');
+    }
   },
-  modules: {
-  }
-})
+  modules: {}
+});
